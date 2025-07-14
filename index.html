@@ -8,8 +8,8 @@
   <p>Status: <span id="status">Idle...</span></p>
   <script src="https://cdn.jsdelivr.net/npm/escpos-js@latest/dist/escpos.min.js"></script>
   <script>
-    const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+    const SUPABASE_URL = 'https://zfqqkhufkwqxfeijsljh.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpmcXFraHVma3dxeGZlaWpzbGpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE3NDM3NjYsImV4cCI6MjA2NzMxOTc2Nn0.QvrVu5sXf_zXWXAc8Y3lIJeTkU0CV6fcOrlA9wj1efk';
     const POLLING_INTERVAL = 10000; // 10 seconds
 
     const statusEl = document.getElementById('status');
@@ -25,8 +25,8 @@
 
         if (job) {
           statusEl.textContent = `Printing job ${job.id}...`;
-          await printReceipt(job); // Function to handle actual printing
-          await updateJobStatus(job.id, 'completed');
+          await printReceipt(job);
+          await updateJobStatus(job.id, { status: 'completed' }); // Update status to completed
           statusEl.textContent = `Job ${job.id} complete.`;
         } else {
           statusEl.textContent = 'Idle... No jobs found.';
@@ -38,16 +38,12 @@
     }
 
     async function printReceipt(job) {
-        // 1. Generate the receipt text from 'job.receipt_data'
-        // (This re-uses the logic from your 'create-receipt' function)
         const receiptText = `Order: ${job.order_id}\n------------------\nThank you!`; // Simplified example
 
-        // 2. Connect to the printer via WebUSB
         try {
             const device = await escpos.USB.getDevice();
             const printer = await escpos.USB.open(device);
 
-            // 3. Send commands to the printer
             await printer
                 .init()
                 .align('ct')
@@ -57,17 +53,24 @@
              console.log('Successfully sent to printer.');
         } catch(error) {
             console.error('Printer connection failed:', error);
-            // If printing fails, mark the job as 'failed'
-            await updateJobStatus(job.id, 'failed');
-            throw new Error('Failed to print.');
+            // If printing fails, mark job as 'failed' and increment retry_count
+            const currentRetries = job.retry_count || 0;
+            await updateJobStatus(job.id, {
+                status: 'failed',
+                retry_count: currentRetries + 1
+            });
+            throw new Error(`Failed to print job ${job.id}.`);
         }
     }
 
-    async function updateJobStatus(jobId, status) {
+    // This function is now more flexible and accepts an object of updates
+    async function updateJobStatus(jobId, updates) {
+        // NOTE: You must ensure your 'update-job-status' Edge Function can handle this payload.
+        // A simple implementation for that function is provided below.
         await fetch(`${SUPABASE_URL}/functions/v1/update-job-status`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ job_id: jobId, new_status: status })
+            body: JSON.stringify({ job_id: jobId, updates: updates })
         });
     }
 
